@@ -1,0 +1,1212 @@
+---
+bibliography: ../bib/refs.bib
+csl: ../bib/biological-reviews.csl
+format:
+  docx:
+    reference-doc: ../bib/template.docx
+    output-file: "results.docx"
+editor_options: 
+  chunk_output_type: console
+execute:
+  freeze: auto  # re-render only when source changes
+  cache: false
+  echo: false
+  warning: false
+  error: false
+  include: true
+crossref:
+  fig-title: '**Figure**'
+  fig-labels: arabic
+  title-delim: "-"
+  fig-prefix: "Figure"
+  tbl-prefix: ""
+editor: 
+  markdown: 
+    wrap: 72
+---
+
+```{r, loadpacks}
+#| label: loadpacks
+#| echo: false
+#| warning: false
+#| error: false
+
+# Clean working directory
+  rm(list = ls())
+
+## Loading some important packages. For first time use, unannotated and install the two packages first
+	source(here::here("R", "func.R"))
+  check_and_install(c("pacman"))
+	pacman::p_load(tidyverse, flextable, latex2exp, metafor, orchaRd, readxl, ape, phytools,here, brms, ggrepel, patchwork, magick, ggtree, equatags, rotl, rphylopic, ggimage, rmarkdown, knitr, kableExtra, janitor, minqa, multcomp)
+
+# Load the processed data. Keep object as list to hopefully make code more readable. 
+         path <- here("output", "data")
+        files <- list.files(here("output", "data"))
+	 data_lists <- lapply(paste0(path, "/", files), function(x) read.csv(x))
+    names(data_lists) <- files
+
+    data_lists  <- lapply(data_lists, function(x) mutate(x, depend = interaction(sample_depend, study)))
+
+     data_lists <- lapply(data_lists, function(x) x %>% 
+                          mutate(inv_n = (n_t1 + n_t2) / (n_t1 * n_t2),
+                            sqrt_inv_n = sqrt(inv_n),
+                                  ef_n = (4 * n_t1 * n_t2)/(n_t1 + n_t2))) # Effective sample size
+
+# All data summary
+  data <- plyr::ldply(data_lists)
+
+# Summary of sexes category
+  tabyl(data, sex)
+  
+# Bring in the phylogeny 
+  phylo <- read.tree(here("output", "phylo", "phylo_pruned_species.nwk"))
+
+# Tree also contains species that are in temperature dataset so these need to be pruned
+  phylo <- tree_checks(tree = phylo, dataCol = "species_phylo", data = data, type = "prune")
+
+# Set digits
+  options(digits = 2)
+```
+
+# Methods
+### *Effect size*
+
+To quantify the impacts of developmental stress on mitochondrial function we calculated the standardized mean difference, assuming heteroscedastic population variances ($SMD_{H}$) [@Bonett2008; @Bonett2009] along with its associated sampling error. We used the *escalc* function of the *metafor* package (vers. `r utils::packageVersion("metafor")`) [@Viechtbauer2010-fn] in R (vers. `r paste0(R.Version()$major, ".", R.Version()$minor)`) which implements a correction to account for possible bias resulting from effect sizes calculated with small sample sizes [@Borenstein2009]. We choose to use $SMD_{H}$ as our effect size because our data: 1) contained substantial amounts of ratio data (e.g., respiratory control ratios, RCR, relative gene expression) which makes interpretation with alternative effect size measures, such as log response ratio, challenging; 2) percentages and zero measurement variables and 3) skewed measurement variables. $SMD_{H}$ is more robust to these types of measurement variables.  
+
+Given the diversity of measurement variables we paid particular attention to effect size direction to ensure that positive increase of means all represent increased in mitochondrial function. ONDI ELABORATES AND TABLE
+
+We calculated $SMD_{H}$ as the mean difference between control and treatment groups divided by the pooled standard deviation. As such, positive effect sizes represent situations where the mean of the experimental group was larger than the control group. Again, we corrected the direction of effect size (multiplied by -1) to ensure their interpretation remained consistent with respect to mitochondrial function.
+
+### *Meta-Analysis*
+
+We analysed our data using multilevel meta-analytic (MLMA) and meta-regression (MLMR) models in R  using *metafor* [vers. `r utils::packageVersion("metafor")` @Viechtbauer2010-fn]. Meta-analytic mean estimates and meta-regression models were plotted using orchard plots which convey overall meta-analytic means, alongside raw effect sizes and prediction intervals, which describe effect heterogeneity [vers. 2.0, @Nakagawa2021-ls; @nakagawaorchard]. 
+
+#### *Multi-level Meta-analysis (MLMA) Models*
+
+Using data subsets for each of our major stressor categories, we first fit multi-level meta-analysis (MLMA) models (i.e., intercept-only models) with $SMD_{H}$, that included study, tissue type, and phylogeny as random effects to account for non-independence and identify sources of variability. We also explored models that included species and sample dependency as random effects but these were highly confounded with phylogeny and study so we simplified models by removing these terms. Given *metafor* does not estimate a residual variance by default we also included an observation-level random effect in our models. The size of datasets varied in the number of species and tissues (Table @tbl-heterogeneity). As such, we simplified the random effect structure for some datasets; including only random effects with six or more levels. Our MLMA models allowed us to partition variation in $SMD_{H}$ among these key sources while accounting for total sampling variance. We took a pluralistic approach to heterogeneity reporting, by reporting absolute ($\sigma^2$), relative (i.e., $I_{total}^2$, *sensu* @Nakagawa2012-oc; @Noble2022-ty) and magnitude measures (both $CV_{total}$ and $M_{total}$) of heterogeneity  as suggested by @Yang2023. We also report each of their stratified versions for each random effect level [@Nakagawa2012-oc; @Yang2023]. We also present 95% prediction intervals which describe the expected distribution of effects from future studies [@Nakagawa2021-ls; @Noble2022-ty].
+
+A phylogeny was derived by first cross-checking taxa names using the Open Tree of Life (OTL) with the *rotl* package in R (vers. `r utils::packageVersion("rotl")`) [@Michonneau2016-if], and plotting taxa using *ggtree* to visualize the tree (vers. `r utils::packageVersion("ggtree")`) [@Yu2017-wj]. We resolved any taxa names that were outdated or changed. Once names in the dataset and *rotl* database matched we exported species names and built a time calibrated phylogeny for the species in our dataset using TimeTree [timetree.org;  @kumar2022timetree]. We used the R packages *ape* (vers. `r utils::packageVersion("ape")`) [@Paradis2019-gx] and *phytools* (vers. `r utils::packageVersion("phytools")`) [@Revell2012-vq] to prune the tree for individual analyses and calculate phylogenetic correlation matrices used in meta-analytic models.
+
+#### *Multi-level Meta-Regression (MLMR) Models*
+
+After quantifying levels of heterogeneity in each of the different stressor datasets, we fit a series of multi-level meta-regression (MLMR) models to test our key questions. In all models, we included the same random effects as we used in our MLMA models. A number of moderators were relevant to all stressor manipulation types and included: 1) measurement trait category (i.e., antioxidants, oxidative damage etc.), 2) stage of manipulation (pre-natal/post-natal or both) and 3) taxa (i.e., class: mammals, birds, amphibians, fish). Some stressor categories were made up of a single class (e.g., social deprivation was only done in mammals) and so we did not include the taxa moderator in these models. We fit models assuming heteroscedastic variation among levels of a given moderator to capture differences in effect variation within groups. 
+
+We had a substantially larger dataset of studies measuring nutritional stress. These studies were more variable and so we included some additional moderators to capture variation in effects. These included: 1) whether the nutritional manipulation involved over or under nutrition and 2) the type of nutritional manipulation done (e.g., fat, protein, total food or carbohydrate manipulation). We expected that the different measurement trait categories may exhibit different responses to nutritional stress and so we also included an interaction between measurement category and whether the study over/under manipulated nutrition. We did not have enough data to estimate an interaction between manipulation type and functional category. We fit three models that included: 1) only nutrition type as a moderator, 2) only under/over nutrition as a moderator and 3) a combined model with both main effects. We evaluated support among models using AIC, choosing the simplest model (fewest estimated parameters) when the $\Delta$AIC values were within 2 units of each other. 
+
+#### Sensitivity Analyses and Publication Bias
+
+Publication bias was checked by first visually exploring plots between each effect size and its precision (1 / SE) for each stressor type (i.e., funnel plots). Importantly, funnel asymmetry can be caused by non-independence and high heterogeneity. As such, we tested for publication bias more formally by altering our overall MLMA models to include the square root inverse effective sample size as a moderator [@Nakagawa2022-gy]. We used the inverse effective sample size because the sampling variance of SMDH includes the effect size itself in its calculation inducing a correlation [@Nakagawa2022-gy]. This method allows one to test for publication bias inferentially. When the slope of the moderator is significantly different from zero, it indicates that publication bias is potentially present. If the slope was significant, we refit models with the inverse effective sample size (not square rooted) because this provides an unbiased estimate of the meta-analytic mean (intercept) [@Nakagawa2022-gy]. Of course, we can never be certain publication bias is truly ever present so these analyses should be viewed as a sensitivity analysis to check the robustness of our results.
+
+Effect sizes in two datasets were very large (i.e., $SMD_{H} < -20$). We checked the data extraction and summary statistics for these (and other data) to ensure they were correctly extracted. However, in all cases they were correct. To ensure that our results were not impacted by these extreme effect sizes we also conducted a sensitivity analysis to check the robustness of our results by refitting the models for these two datasets (nutrition and disturbance) excluding these large effect sizes and compared the results to the original models. In both cases, overall meta-analytic means were unaffected by the inclusion of these extreme effect sizes (See *Supplementary Material*).
+
+# Results
+
+```{r, mlma_models}
+#| label: mlma_models
+#| echo: false
+#| warning: false
+#| error: false
+
+#### -------------------------------------------------- ####
+# 1.            Multi-level Meta-analysis            
+#### -------------------------------------------------- ####
+  
+  rerun = FALSE
+  if(rerun){
+    
+    # Create list to store models
+    MLMA_list <- list()
+    
+    for(i in 1:length(data_lists)){
+      # Add observation level random effect
+        data_lists[[i]]$obs <- 1:nrow(data_lists[[i]])
+
+      # Prune the tree to relevant taxa contained within this dataset.
+        tree_prune <- tree_checks(tree = phylo, dataCol = "species_phylo", data = data_lists[[i]], type ="prune")
+
+      # Calculate the phylogenetic correlation matrix
+        phylo_cor <- vcv(tree_prune, cor = TRUE)
+
+      # Fit the MLMA model for each dataset. Vary random effects structure based on levels of the random effects in the dataset
+     
+      if(i == 2){
+          MLMA_list[[i]] <- rma.mv(SMDH ~ 1, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| obs),
+                          test = "t",  
+                          data = data_lists[[i]])
+      } else {
+          MLMA_list[[i]] <- rma.mv(SMDH ~ 1, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| species_phylo,
+                                          ~1| tissue_sum,
+                                          ~1| obs),
+                            R = list(species_phylo = phylo_cor),
+                          test = "t", 
+                          data = data_lists[[i]])
+      }
+      
+      # Add names to make sure we keep track of which dataset is which model                      
+        names(MLMA_list)[i] <- names(data_lists)[i]
+    }
+
+    # Sensitivity analysis. Test for influential effects. Couple data sets have SMDH -20. We've checked these for entry errors but all appear correctly extracted from the original papers.
+
+  sens_dat <- lapply(data_lists[c(2,4)], function(x) 
+             x  %>% filter(SMDH > -20))
+ 
+    sens_disturb <- rma.mv(SMDH ~ 1, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| obs),
+                          test = "t",  
+                          data = sens_dat[[1]]  %>% 
+                            mutate(obs = 1:nrow(sens_dat[[1]])))
+              
+
+   sens_nutr <- rma.mv(SMDH ~ 1, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| species_phylo,
+                                          ~1| tissue_sum,
+                                          ~1| obs),
+                            R = list(species_phylo = phylo_cor),
+                          test = "t", 
+                          data = sens_dat[[2]]  %>% 
+                            mutate(obs = 1:nrow(sens_dat[[2]])))
+
+      
+    # Save the model
+        saveRDS(MLMA_list, file = here("output", "models", "MLMA_list.rds"))
+        saveRDS(sens_disturb, file = here("output", "models", "sens_disturb.rds"))
+        saveRDS(sens_nutr, file = here("output", "models", "sens_nutr.rds"))
+
+  } else {
+        MLMA_list <- readRDS(here("output", "models", "MLMA_list.rds"))
+        sens_disturb <- readRDS(here("output", "models", "sens_disturb.rds"))
+        sens_nutr <- readRDS(here("output", "models", "sens_nutr.rds"))
+  }
+
+# summary
+  summary_list <- lapply(MLMA_list, function(x) summary(x, digits = 3))
+
+```
+
+```{r, tbl-heterogeneity}
+#| label: tbl-heterogeneity
+#| tbl-cap: "Relative heterogeneity estimates ($I^2$), sample sizes ($n_{effects}$), number of studies ($n_{study}$) and number of species ($n_{species}$) for each of the developmental stressor categories. Relative heterogeneity is reported as $I^2$ (in percent) based on the intercept-only multi-level meta-analytic model. Total heterogeneity, along with stratified version of $I^2$ (study, phylogeny, tissue type and observation) are also provided. Note we also present other heterogeneity measures in the supplementary material."
+#| echo: false
+#| warning: false
+#| error: false
+
+#### -------------------------------------------------- ####
+# 2.            Heterogeneity and Prediction Intervals
+#### -------------------------------------------------- ####
+
+  # Create k and n columns for sample sizes
+    order <- c(1, 3, 4, 2)
+  size  <- data.frame(do.call("rbind", lapply(data_lists, function (x) x  %>% summarise(k = n(), species = n_distinct(species_phylo), study = n_distinct(study)))))  %>% slice(order)
+  
+  # Create table of I2 Total and I2 for each level
+  i2 <- make_het_tables(MLMA_list, size = size, type = "i2")
+
+i2$Stressor <- c("Corticosterone",  "Disturbance", "Nutrition", "Social Deprevation")
+i2  <- i2  %>% dplyr::select(Stressor, everything())
+
+eq  <- c(
+  "Stressor",
+  "n_{effects}",
+  "n_{species}",
+  "n_{study}",
+  "I^2_{total} (\\%)",
+  "I^2_{study} (\\%)",
+  "I^2_{phylogeny} (\\%)",
+  "I^2_{tissue} (\\%)",
+  "I^2_{obs} (\\%)"
+)
+
+flextable(round_df(i2, digits = 3))  %>% compose(part = "header", value = as_paragraph(as_equation(eq))) %>% 
+  width(j = c(1:9), width = c(1.5, rep(0.65, 8)))  %>%  compose(j = c(7,8), i = 4, value = as_paragraph("–"))
+```
+
+```{r, fig-phylo}
+#| label: fig-phylo
+#| echo: false
+#| warning: false
+#| error: false
+#| fig-cap: "**Phylogeny of species included in the meta-analysis**. Phylogenetic relationships and divergence times are based on TimeTree [timetree.org; @kumar2022timetree]. The phylogeny was pruned to only include species in the dataset."
+  
+  phylo$tip.label <- gsub("_", " ", phylo$tip.label)
+
+  fig_phylo <- ggtree(phylo, layout = "rectangular", branch.length = "none") + 
+    geom_tiplab(size = 4, offset = 7, hjust = 1, align = FALSE, fontface = "italic") + 
+    theme_tree2() + labs(x = "Millions of Years (MY)") +
+    theme(legend.position = "none") 
+
+    ggsave(filename = here("output", "figures", "fig3.png"), fig_phylo, width = 4.298039, height = 5.992157)
+
+  p_phylo_img <- image_read(here("output", "figures", "fig3.png"))
+  p_phylo_img
+
+```
+
+```{r, measure_category}
+#| label: measure_category
+#| echo: false
+#| warning: false
+#| error: false
+
+#### -------------------------------------------------- ####
+# 1.1           Measurement category
+#### -------------------------------------------------- ####
+  
+  rerun = FALSE
+  if(rerun){
+    
+    # Create list to store models
+    MLMR_list_Measure <- list()
+    MLMR_list_Measure_noint <- list()
+    
+    for(i in 1:length(data_lists)){
+      # Add observation level random effect
+        data_lists[[i]]$obs <- 1:nrow(data_lists[[i]])
+
+      # Prune the tree to relevant taxa contained within this dataset.
+        tree_prune <- tree_checks(tree = phylo, dataCol = "species_phylo", data = data_lists[[i]], type ="prune")
+
+      # Calculate the phylogenetic correlation matrix
+        phylo_cor <- vcv(tree_prune, cor = TRUE)
+
+      # # Fit the MLMR model for each dataset comparing pre vs postnatal 
+     
+      if(i == 2){
+          MLMR_list_Measure[[i]] <- rma.mv(SMDH ~ measurement_category, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1 + measurement_category| obs),
+                          test = "t",  rho = 0, struc = "HCS", 
+                          data = data_lists[[i]])
+      } else {
+          MLMR_list_Measure[[i]] <- rma.mv(SMDH ~ measurement_category, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| species_phylo,
+                                          ~1| tissue_sum,
+                                          ~1 + measurement_category| obs),
+                                          rho = 0, struc = "HCS", 
+                            R = list(species_phylo = phylo_cor),
+                          test = "t", 
+                          data = data_lists[[i]])
+      }
+      
+      if(i == 2){
+          MLMR_list_Measure_noint[[i]] <- rma.mv(SMDH ~ measurement_category-1, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1 + measurement_category| obs),
+                          test = "t",  rho = 0, struc = "HCS", 
+                          data = data_lists[[i]])
+      } else {
+          MLMR_list_Measure_noint[[i]] <- rma.mv(SMDH ~ measurement_category-1, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| species_phylo,
+                                          ~1| tissue_sum,
+                                          ~1 + measurement_category| obs),
+                                          rho = 0, struc = "HCS", 
+                            R = list(species_phylo = phylo_cor),
+                          test = "t", 
+                          data = data_lists[[i]])
+      }
+      
+
+      # Add names to make sure we keep track of which dataset is which model                      
+        names(MLMR_list_Measure)[i] <- names(data_lists)[i]
+        names(MLMR_list_Measure_noint)[i] <- names(data_lists)[i]
+    }
+      
+    # Save the model
+        saveRDS(MLMR_list_Measure, file = here("output", "models", "MLMR_list_Measure.rds"))
+        saveRDS(MLMR_list_Measure_noint, file = here("output", "models", "MLMR_list_Measure_noint.rds"))
+
+  } else {
+        MLMR_list_Measure <- readRDS(here("output", "models", "MLMR_list_Measure.rds"))
+        MLMR_list_Measure_noint <- readRDS(here("output", "models", "MLMR_list_Measure_noint.rds"))
+  }
+
+```
+
+```{r, preprost}
+#| label: preprost
+#| echo: false
+#| warning: false
+#| error: false
+
+
+# Check relative duration differences across pre and postnatal for each dataset
+  rel_dur_table <- lapply(data_lists, function(x) x  %>% group_by(class) %>% 
+                          summarise(mean = mean(relative_total_duration, na.rm = TRUE), 
+                                      sd = sd(relative_total_duration, na.rm = TRUE), 
+                                       k = n(), 
+                                    stdy = n_distinct(study), 
+                                     spp = n_distinct(species_phylo)))
+
+# Releative total duration is at the level of species and there are too few species to fit this variable as a moderator so sticking with just pre/post.
+
+#### -------------------------------------------------- ####
+# 1.3   Stage of stressor
+#### -------------------------------------------------- ####
+
+  rerun = FALSE
+  if(rerun){
+    
+    # Create list to store models
+    MLMR_list_preprost <- list()
+    MLMR_list_preprost_noint <- list()
+    
+    for(i in 1:length(data_lists)){
+      # Add observation level random effect
+        data_lists[[i]]$obs <- 1:nrow(data_lists[[i]])
+      
+      # Prune the tree to relevant taxa contained within this dataset.
+        tree_prune <- tree_checks(tree = phylo, dataCol = "species_phylo", data = data_lists[[i]], type ="prune")
+
+      # Calculate the phylogenetic correlation matrix
+        phylo_cor <- vcv(tree_prune, cor = TRUE)
+
+      # # Fit the MLMR model for each dataset comparing pre vs postnatal and accounting for relative duration of stressor standardised to develeopment time. Note that social deprivation only has one level for stage so cannot fit this model
+     
+      if(i == 2){
+          MLMR_list_preprost[[i]] <- rma.mv(SMDH ~ 1, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| obs),
+                          test = "t",  
+                          data = data_lists[[i]])
+      } else {
+          MLMR_list_preprost[[i]] <- rma.mv(SMDH ~ stage, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| species_phylo,
+                                          ~1| tissue_sum,
+                                          ~1 + stage | obs),
+                                          rho = 0, struc = "HCS", 
+                            R = list(species_phylo = phylo_cor),
+                          test = "t", 
+                          data = data_lists[[i]])
+      }
+
+
+      if(i == 2){
+          MLMR_list_preprost_noint[[i]] <- rma.mv(SMDH ~ 1, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| obs),
+                          test = "t",  
+                          data = data_lists[[i]])
+      } else {
+          MLMR_list_preprost_noint[[i]] <- rma.mv(SMDH ~ stage-1, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| species_phylo,
+                                          ~1| tissue_sum,
+                                          ~1 + stage | obs),
+                                          rho = 0, struc = "HCS", 
+                            R = list(species_phylo = phylo_cor),
+                          test = "t", 
+                          data = data_lists[[i]])
+      }
+
+
+      # Add names to make sure we keep track of which dataset is which model                      
+        names(MLMR_list_preprost)[i] <- names(data_lists)[i]
+        names(MLMR_list_preprost_noint)[i] <- names(data_lists)[i]
+
+    }
+      
+    # Save the model
+        saveRDS(MLMR_list_preprost, file = here("output", "models", "MLMR_list_preprost.rds"))
+        saveRDS(MLMR_list_preprost_noint, file = here("output", "models", "MLMR_list_preprost_noint.rds"))
+
+
+  } else {
+        MLMR_list_preprost <- readRDS(here("output", "models", "MLMR_list_preprost.rds"))
+        MLMR_list_preprost_noint <- readRDS(here("output", "models", "MLMR_list_preprost_noint.rds"))
+  }
+
+ 
+```
+
+```{r, taxa}
+#| label: taxa
+#| echo: false
+#| warning: false
+#| error: false
+
+#### -------------------------------------------------- ####
+# 1.3   Taxa 
+#### -------------------------------------------------- ####
+
+rerun = FALSE
+  if(rerun){
+    
+    # Create list to store models
+    MLMR_list_taxa <- list()
+    MLMR_list_taxa_noint <- list()
+    
+    for(i in 1:length(data_lists)){
+      # Add observation level random effect
+        data_lists[[i]]$obs <- 1:nrow(data_lists[[i]])
+
+      # Prune the tree to relevant taxa contained within this dataset.
+        tree_prune <- tree_checks(tree = phylo, dataCol = "species_phylo", data = data_lists[[i]], type ="prune")
+
+      # Calculate the phylogenetic correlation matrix
+        phylo_cor <- vcv(tree_prune, cor = TRUE)
+
+      # # Fit the MLMR model for each dataset but note that social deprivation only has one level for class so cannot fit this model
+     
+      if(i %in% c(1,3,4)){
+          MLMR_list_taxa[[i]] <- rma.mv(SMDH ~ class, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| species_phylo,
+                                          ~1| tissue_sum,
+                                          ~1 + class| obs),
+                            R = list(species_phylo = phylo_cor),
+                          test = "t", rho = 0, struc = "HCS", 
+                          data = data_lists[[i]], control = list(maxiter = 1000, 
+                                                                  tol = 1e-6))
+        # Add names to make sure we keep track of which dataset is which model                      
+        names(MLMR_list_taxa)[i] <- names(data_lists)[i]
+      }
+
+      if(i %in% c(1,3,4)){
+          MLMR_list_taxa_noint[[i]] <- rma.mv(SMDH ~ class-1, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| species_phylo,
+                                          ~1| tissue_sum,
+                                          ~1 + class| obs),
+                            R = list(species_phylo = phylo_cor),
+                          test = "t", rho = 0, struc = "HCS", 
+                          data = data_lists[[i]], control = list(maxiter = 1000, 
+                                                                  tol = 1e-6))
+        # Add names to make sure we keep track of which dataset is which model                      
+        names(MLMR_list_taxa_noint)[i] <- names(data_lists)[i]
+      }
+  
+    }
+      
+    # Save the model
+        saveRDS(MLMR_list_taxa, file = here("output", "models", "MLMR_list_taxa.rds"))
+        saveRDS(MLMR_list_taxa_noint, file = here("output", "models", "MLMR_list_taxa_noint.rds"))
+
+  } else {
+        MLMR_list_taxa <- readRDS(here("output", "models", "MLMR_list_taxa.rds"))
+        MLMR_list_taxa_noint <- readRDS(here("output", "models", "MLMR_list_taxa_noint.rds"))
+  }
+
+ # Summary of taxa 
+  taxa_table <- data  %>% group_by(class) %>% 
+    summarise(k = n(), 
+              n_species = n_distinct(species_phylo2), 
+              n_study = n_distinct(study))  %>% 
+    arrange(desc(k))
+
+  # Species of mammals
+  mammals_sp <- data %>% filter(class == "Mammalia") %>% reframe(sp = unique(species_phylo2))
+```
+
+```{r, delay_models}
+#| label: delay_models
+#| echo: false
+#| warning: false
+#| error: false
+
+#### -------------------------------------------------- ####
+# 1.            Delay between Treatments and Trait measurement
+#### -------------------------------------------------- ####
+  
+  rerun = FALSE
+  if(rerun){
+    
+    # Create list to store models
+    delay_list <- list()
+    
+    for(i in 1:length(data_lists)){
+      # Add observation level random effect
+        data_lists[[i]]$obs <- 1:nrow(data_lists[[i]])
+
+      # Calculate delay
+        data_lists[[i]] <- data_lists[[i]] %>% 
+          mutate(delay = ifelse(stage == "postnatal", postnatal_measure_delay, 
+                                  ifelse(stage == "prenatal", prenatal_measure_delay,     postnatal_measure_delay)))
+
+      # Prune the tree to relevant taxa contained within this dataset.
+        tree_prune <- tree_checks(tree = phylo, dataCol = "species_phylo", data = data_lists[[i]], type ="prune")
+
+      # Calculate the phylogenetic correlation matrix
+        phylo_cor <- vcv(tree_prune, cor = TRUE)
+
+      # Fit the MLMA model for each dataset. Vary random effects structure based on levels of the random effects in the dataset
+     
+      if(i == 2){
+          delay_list[[i]] <- rma.mv(SMDH ~ 1 + delay, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| obs),
+                          test = "t",  
+                          data = data_lists[[i]])
+      } else {
+          delay_list[[i]] <- rma.mv(SMDH ~ 1 + delay, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| species_phylo,
+                                          ~1| tissue_sum,
+                                          ~1| obs),
+                            R = list(species_phylo = phylo_cor),
+                          test = "t", 
+                          data = data_lists[[i]])
+      }
+      
+      # Add names to make sure we keep track of which dataset is which model                      
+        names(delay_list)[i] <- names(data_lists)[i]
+    }
+
+    # Save the model
+        saveRDS(delay_list, file = here("output", "models", "delay_list.rds"))
+       
+
+  } else {
+        delay_list <- readRDS(here("output", "models", "delay_list.rds"))
+
+  }
+
+
+```
+
+```{r, mlma_pubias}
+#| label: mlma_pubias
+#| echo: false
+#| warning: false
+#| error: false
+
+#### -------------------------------------------------- ####
+# 1.            Multi-level Meta-analysis            
+#### -------------------------------------------------- ####
+  
+  rerun = FALSE
+  if(rerun){
+    
+    # Create list to store models
+    MLMA_list_pubbias_se <- list()
+    MLMA_list_pubbias_v <- list()
+    
+    for(i in 1:length(data_lists)){
+      # Add observation level random effect
+        data_lists[[i]]$obs <- 1:nrow(data_lists[[i]])
+
+      # Prune the tree to relevant taxa contained within this dataset.
+        tree_prune <- tree_checks(tree = phylo, dataCol = "species_phylo", data = data_lists[[i]], type ="prune")
+
+      # Calculate the phylogenetic correlation matrix
+        phylo_cor <- vcv(tree_prune, cor = TRUE)
+
+      # Fit the MLMA model for each dataset. Vary random effects structure based on levels of the random effects in the dataset
+     
+      if(i == 2){
+          MLMA_list_pubbias_se[[i]] <- rma.mv(SMDH ~ 1 + sqrt_inv_n, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| obs),
+                          test = "t",  
+                          data = data_lists[[i]])
+      } else {
+          MLMA_list_pubbias_se[[i]] <- rma.mv(SMDH ~ 1 + sqrt_inv_n, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| species_phylo,
+                                          ~1| tissue_sum,
+                                          ~1| obs),
+                            R = list(species_phylo = phylo_cor),
+                          test = "t", 
+                          data = data_lists[[i]])
+      }
+
+      if(i == 2){
+          MLMA_list_pubbias_v[[i]] <- rma.mv(SMDH ~ 1 + inv_n, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| obs),
+                          test = "t",  
+                          data = data_lists[[i]])
+      } else {
+          MLMA_list_pubbias_v[[i]] <- rma.mv(SMDH ~ 1 + inv_n, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| species_phylo,
+                                          ~1| tissue_sum,
+                                          ~1| obs),
+                            R = list(species_phylo = phylo_cor),
+                          test = "t", 
+                          data = data_lists[[i]])
+      }
+      
+      # Add names to make sure we keep track of which dataset is which model                      
+        names(MLMA_list_pubbias_se)[i] <- names(data_lists)[i]
+        names(MLMA_list_pubbias_v)[i] <- names(data_lists)[i]
+    }
+      
+    # Save the model
+        saveRDS(MLMA_list_pubbias_se, file = here("output", "models", "MLMA_list_pubbias_se.rds"))
+        saveRDS(MLMA_list_pubbias_v, file = here("output", "models", "MLMA_list_pubbias_v.rds"))
+
+  } else {
+        MLMA_list_pubbias_se <- readRDS(here("output", "models", "MLMA_list_pubbias_se.rds"))
+        MLMA_list_pubbias_v <- readRDS(here("output", "models", "MLMA_list_pubbias_v.rds"))
+  }
+
+
+```
+
+In total, we collected  `r sum(i2$k)` effect sizes from `r length(unique(data$species_phylo))` species (@fig-phylo) and `r length(unique(data$study))` studies across the different stressors (Table @tbl-heterogeneity). There were clear taxonomic biases. The majority of effects came from studies on mammals (effects = `r taxa_table[1,2]`, studies = `r taxa_table[1,4]`), and these were only from `r taxa_table[1,3]` species (*Mus musculus*, *Rattus norvegicus*, *Ovis aries* and *Capra hircus*). Fish had the second most effects (`r taxa_table[2,2]`, species = `r taxa_table[2,3]` and studies = `r taxa_table[2,4]`) followed by birds (`r taxa_table[3,2]`, species = `r taxa_table[3,3]` and studies = `r taxa_table[3,4]`) and amphibians (`r taxa_table[4,2]`, species = `r taxa_table[4,3]` from only `r taxa_table[4,4]` study). 
+
+```{r, fig-orchard_int}
+#| label: fig-orchard_int
+#| echo: false
+#| warning: false
+#| error: false
+#| fig-cap: "**Overall meta-analytic mean estimates for each developmental stressor category (a) corticosterone, (b) social deprevation, (c) disturbance stress and (d) nutritional stress**. Mean estimates are shown as large points, with 95% confidence (thick black bars) and prediction (thin black bars). The number of effects (k) along with the number of studies (in parantheses) are provided for each stressor category. The dashed line represents no effect (i.e., $SMD_{H}$ = 0). Raw data are also shown and are weighted by their inverse sampling error (precision). Note raw data is truncated for ease of visualisation."
+  
+  table <- lapply(data_lists, function(x) x  %>% summarise(studies = n_distinct(study), spp = n_distinct(species_phylo), k = n()))
+
+# Create coordinate system that is unique for each plot
+z = list(data.frame(x = 1.2, y = 5),
+         data.frame(x = 1.2, y = 5),
+         data.frame(x = 1.2, y = 5),
+         data.frame(x = 1.2, y = 5))
+
+# Get p-values from the models
+    p_mlma <- round(sapply(MLMA_list, function(x) coef(summary(x))$pval), 2)
+
+    plots  <- mapply(function(x, y, z, p) 
+      orchard_plot(x, xlab = TeX("$SMD_{H}$"), group = "study", trunk.size = 1.2, branch.size = 2, k = FALSE, g = FALSE) +  
+          ylim(-8,8) + scale_x_discrete(labels = "Overall") +
+         theme_classic() + theme(legend.position = "top",
+                                 axis.title = element_text(size = 18),
+                                 plot.title = element_text(face = "bold", size = 16),
+                                 axis.text = element_text(size = 12),
+                                 plot.tag = element_text(size = 24)) + 
+    scale_color_manual(values = "black") + 
+    scale_fill_manual(values = "gray") +
+    annotate("text", x = c(z$x), y = c(z$y), label = TeX(paste0("\\textit{k} = ", y$k, " (", y$studies, ")")), size = 5, hjust = 0) +
+    annotate("text", x = c(z$x), y = c(z$y)-12, label = TeX(paste0("\\textit{p} = ", p)), size = 5, hjust = 0), 
+    x = MLMA_list, y = table, z = z, p = p_mlma, SIMPLIFY = FALSE)
+
+
+    p_overall <- (plots[[1]] + ggtitle("Glucocorticoids") + plots[[2]] + ggtitle("Parental Care Deprivation")) / (plots[[3]] + ggtitle("Psychological Disturbance") + plots[[4]] + ggtitle("Nutritional imbalance")) + plot_annotation(tag_levels = "a", tag_suffix = ")") 
+    ggsave(here("output", "figures", "fig4.png"), p_overall, width = 12.815686, height = 8.282353)
+  
+    p_overall <- image_read(here("output", "figures", "fig4.png"))
+    p_overall
+```
+
+## Corticosterone developmental impacts on mitochondrial function
+
+Overall, exposure to corticosterone during development negatively impacted mitochondrial function ($SMD_{H}$ = `r coef(summary_list[[1]])$estimate`, 95% CI = `r coef(summary_list[[1]])$ci.lb` to `r coef(summary_list[[1]])$ci.ub`, $p$ = `r coef(summary_list[[1]])$pval`; [@fig-orchard_int]a), and there was no strong evidence for publication bias (See *Supplementary Materials*). Effect heterogeneity was high (95% Prediction Intervals: `r predict(summary_list[[1]])$pi.lb` to `r predict(summary_list[[1]])$pi.ub`; Table @tbl-heterogeneity and see Table S @tbl-heterogeneity_cv & Table S @tbl-heterogeneity_m2), with `r i2[1,"I2_study"]`% of variation being driven by differences among studies ($I^2_{study}$; Table @tbl-heterogeneity) and `r i2[1,"I2_tissue_sum"]`% of variation being driven by differences among tissues ($I^2_{tissue}$; Table @tbl-heterogeneity) with little to no variation explained by phylogeny (Table @tbl-heterogeneity). 
+
+Prenatal exposure to corticosterone had a larger negative impact on mitochondrial function than postnatal exposure ($SMD_{H}$ = `r MLMR_list_preprost[[1]]$b[2]`, 95% CI = `r MLMR_list_preprost[[1]]$ci.lb[2]` to `r MLMR_list_preprost[[1]]$ci.ub[2]`), however, this effect was not significant ($p$ = `r MLMR_list_preprost[[1]]$pval[2]`; [@fig-orchard_prepost]a). There was also no evidence that time between treatment and measurement of mitochondrial function influenced the effect size ($\beta$ = `r delay_list[[1]]$b[2]`, 95% CI = `r delay_list[[1]]$ci.lb[2]` to `r delay_list[[1]]$ci.ub[2]`, $p$ = `r delay_list[[1]]$pval[2]`; [@fig-delay]a).
+
+Mitochondrial function was supressed across all major functional categories in a similar fashion with no significant differences among functional categories ($Q_{M}_{`r MLMR_list_Measure[[1]]$QMdf[1]`, `r MLMR_list_Measure[[1]]$QMdf[2]`}$ = `r MLMR_list_Measure[[1]]$QM`, $p$ = `r MLMR_list_Measure[[1]]$QMp` [@fig-orchard_measure]a). Treatment with corticostrone supressed respiration and metabolic capacity the greatest (respiraton: $SMD_{H}$ = `r MLMR_list_Measure_noint[[1]]$b[5]`, 95% CI: `r MLMR_list_Measure_noint[[1]]$ci.lb[5]` to `r MLMR_list_Measure_noint[[1]]$ci.ub[5]`, $p$ = `r MLMR_list_Measure_noint[[1]]$pval[5]`; metabolic capacity: $SMD_{H}$ = `r MLMR_list_Measure_noint[[1]]$b[2]`, 95% CI: `r MLMR_list_Measure_noint[[1]]$ci.lb[2]` to `r MLMR_list_Measure_noint[[1]]$ci.ub[2]`, $p$ = `r MLMR_list_Measure_noint[[1]]$pval[2]`) and increased oxidative damage and stress (Damage: $SMD_{H}$ = `r MLMR_list_Measure_noint[[1]]$b[3]`, 95% CI: `r MLMR_list_Measure_noint[[1]]$ci.lb[3]` to `r MLMR_list_Measure_noint[[1]]$ci.ub[3]`, $p$ = `r MLMR_list_Measure_noint[[1]]$pval[3]`; Stress: $SMD_{H}$ = `r MLMR_list_Measure_noint[[1]]$b[4]`, 95% CI: `r MLMR_list_Measure_noint[[1]]$ci.lb[4]` to `r MLMR_list_Measure_noint[[1]]$ci.ub[4]`, $p$ = `r MLMR_list_Measure_noint[[1]]$pval[4]`), but some not significantly so. 
+
+While effects appeared to be stronger in mammals, there were no significant differences among classes ($Q_{M}_{`r MLMR_list_taxa[[1]]$QMdf[1]`,`r MLMR_list_taxa[[1]]$QMdf[2]`}$ = `r MLMR_list_taxa[[1]]$QM`, $p$ = `r MLMR_list_taxa[[1]]$QMp`; [@fig-orchard_taxa]a). Overall, mitochondrial function was supressed in mammals ($SMD_{H}$ = `r MLMR_list_taxa_noint[[1]]$b[3]`, 95% CI: `r MLMR_list_taxa_noint[[1]]$ci.lb[3]` to `r MLMR_list_taxa_noint[[1]]$ci.ub[3]`, $p$ = `r MLMR_list_taxa_noint[[1]]$pval[3]`) and fish ($SMD_{H}$ = `r MLMR_list_taxa_noint[[1]]$b[1]`, 95% CI: `r MLMR_list_taxa_noint[[1]]$ci.lb[1]` to `r MLMR_list_taxa_noint[[1]]$ci.ub[1]`, $p$ = `r MLMR_list_taxa_noint[[1]]$pval[1]`), with effects being weaker (albeit still negative) in birds ($SMD_{H}$ = `r MLMR_list_taxa_noint[[1]]$b[2]`, 95% CI: `r MLMR_list_taxa_noint[[1]]$ci.lb[2]` to `r MLMR_list_taxa_noint[[1]]$ci.ub[2]`, $p$ = `r MLMR_list_taxa_noint[[1]]$pval[2]`).
+
+
+```{r, fig-orchard_measure}
+#| label: fig-orchard_measure
+#| echo: false
+#| warning: false
+#| error: false
+#| fig-cap: "**Overall meta-analytic mean estimates across each functional trait category for each developmental stressor type (a) corticosterone, (b) social deprevation, (c) disturbance stress and (d) nutritional stress**. Mean estimates are shown as large points, with 95% confidence (thick black bars) and prediction (thin black bars). The number of effects (k) along with the number of studies (in parantheses) are shown provided for each trait category. The dashed line represents no effect (i.e., $SMD_{H}$ = 0). Raw data are also shown and are weighted by their inverse sampling error (precision). Note raw data is truncated for ease of visualisation."
+
+# Get summary data for levels
+measure_table <- lapply(data_lists, function(x) x  %>% group_by(measurement_category) %>% summarise(studies = n_distinct(study), spp = n_distinct(species_phylo), k = n()))
+
+# Create coordinate system that is unique for each plot
+z = list(data.frame(x = c(1.2, 2.2, 3.2, 4.2, 5.2), y = rep(4, 5)),
+         data.frame(x = c(1.2, 2.2, 3.2, 4.2), y = rep(4, 4)),
+         data.frame(x = c(1.2, 2.2, 3.2, 4.2), y = rep(4, 4)),
+         data.frame(x = c(1.2, 2.2, 3.2, 4.2, 5.2), y = rep(4,5)))
+  
+# p-value for measurement category moderator
+    p_measure <- lapply(MLMR_list_Measure_noint, function(x) round(x$pval, 2))
+
+# Apply orchard to each model and add the k and spp information to the plot
+  plots  <- mapply(function(x, y, z, p) orchard_plot(x, mod = "measurement_category", xlab = TeX("$SMD_{H}$"), group = "study", trunk.size = 1.2, branch.size = 2, k = FALSE, g = FALSE) +  ylim(-8,8) +                                              theme_classic() + theme(legend.position = "top", axis.title = element_text(size = 18), plot.title = element_text(face = "bold", size = 16),
+                                                      axis.text = element_text(size = 12),
+                                                       plot.tag = element_text(size = 24)) +
+    annotate("text", x = c(z$x), y = c(z$y), label = TeX(paste0("\\textit{k} = ", y$k, " (", y$studies, ")")), size = 5, hjust = 0) + annotate("text", x = c(z$x), y = c(z$y)-12, label = TeX(paste0("\\textit{p} = ", p)), size = 5, hjust = 0), x = MLMR_list_Measure, y = measure_table, z = z, p = p_measure, SIMPLIFY = FALSE)                                                 
+
+
+# Create a layout for the plots
+    p_measure <- (plots[[1]] + ggtitle("Glucocorticoids") + plots[[2]] + ggtitle("Parental care deprivation")) / (plots[[3]] + ggtitle("Psychological disturbance") + plots[[4]] + ggtitle("Nutritional imbalance")) + plot_annotation(tag_levels = "a", tag_suffix = ")") 
+    ggsave(here("output", "figures", "fig5.png"), p_measure, width = 14.74510, height = 10.37647)
+
+    p_measure <- image_read(here("output", "figures", "fig5.png"))
+    p_measure
+```
+
+## Social deprivation developmental impacts on mitochondrial function
+Social deprivation during development had a negative impact on mitochondrial function ($SMD_{H}$ = `r coef(summary_list[[2]])$estimate`, 95% CI = `r coef(summary_list[[2]])$ci.lb` to `r coef(summary_list[[2]])$ci.ub`, $p$ = `r coef(summary_list[[2]])$pval`; [@fig-orchard_int]b), and there was also no convincing evidence for publication bias (See *Supplementary Materials*). Effect heterogeneity was again high (95% Prediction Intervals: `r predict(summary_list[[2]])$pi.lb` to `r predict(summary_list[[2]])$pi.ub`; Table @tbl-heterogeneity; and see Table S @tbl-heterogeneity_cv & Table S @tbl-heterogeneity_m2), with `r i2[4,"I2_study"]`% of the variation being driven by differences among studies ($I^2_{study}$) (Table @tbl-heterogeneity). 
+
+Social deprevation studies were only ever done with mammals, and all studies manipulated environments postnatally. There was also no evidence that time between treatment and measurement of mitochondrial function influenced the effect size ($\beta$ = `r delay_list[[2]]$b[2]`, 95% CI = `r delay_list[[2]]$ci.lb[2]` to `r delay_list[[2]]$ci.ub[2]`, $p$ = `r delay_list[[2]]$pval[2]`; [@fig-delay]b).Mitochondrial function was supressed across all major functional categories but they did not differ significantly from each other ($Q_{M}_{`r MLMR_list_Measure[[2]]$QMdf[1]`, `r MLMR_list_Measure[[2]]$QMdf[2]`}$ = `r MLMR_list_Measure[[2]]$QM`, $p$ = `r MLMR_list_Measure[[2]]$QMp`; [@fig-orchard_measure]b). Effects were more negative for antioxidant capacity ($SMD_{H}$ = `r MLMR_list_Measure_noint[[2]]$b[1]`, 95% CI: `r MLMR_list_Measure_noint[[2]]$ci.lb[1]` to `r MLMR_list_Measure_noint[[2]]$ci.ub[1]`, $p$ = `r MLMR_list_Measure_noint[[2]]$pval[1]`),  oxidative damage ($SMD_{H}$ = `r MLMR_list_Measure_noint[[2]]$b[3]`, 95% CI: `r MLMR_list_Measure_noint[[2]]$ci.lb[3]` to `r MLMR_list_Measure_noint[[2]]$ci.ub[3]`, $p$ = `r MLMR_list_Measure_noint[[2]]$pval[3]`) and oxidative stress ($SMD_{H}$ = `r MLMR_list_Measure_noint[[2]]$b[4]`, 95% CI: `r MLMR_list_Measure_noint[[2]]$ci.lb[4]` to `r MLMR_list_Measure_noint[[2]]$ci.ub[4]`, $p$ = `r MLMR_list_Measure_noint[[2]]$pval[4]`). While metabolic capacity was also supressed overall, it was not significantly different from zero ($SMD_{H}$ = `r MLMR_list_Measure_noint[[2]]$b[2]`, 95% CI: `r MLMR_list_Measure_noint[[2]]$ci.lb[2]` to `r MLMR_list_Measure_noint[[2]]$ci.ub[2]`, $p$ = `r MLMR_list_Measure_noint[[2]]$pval[2]`; [@fig-orchard_measure]b).
+
+
+```{r, fig-orchard_taxa}
+#| label: fig-orchard_taxa
+#| echo: false
+#| warning: false
+#| error: false
+#| fig-cap: "**Overall meta-analytic mean estimates for each taxonomic group (class) across developmental stressors (a) corticosterone, (b) disturbance stress and (c) nutritional stress**. Mean estimates are shown as large points, with 95% confidence (thick black bars) and prediction (thin black bars). The number of effects (k) along with the number of studies (in parantheses) are shown provided for each class. The dashed line represents no effect (i.e., $SMD_{H}$ = 0). Raw data are also shown and are weighted by their inverse sampling error (precision). Note raw data is truncated for ease of visualisation. Social deprevation was not included as it only has one level for class (Mammalia) (see Figure 2 for effects)."
+  
+    # get silouettes for taxa
+     
+        # Get a single image UUID for a species
+        uuid_mammal <- get_uuid(name = "Mus_musculus")
+        # Get the image for that UUID
+        mammal <- get_phylopic(uuid = uuid_mammal)
+        
+        # Get a single image UUID for a species
+        uuid_bird<- get_uuid(name = "Taeniopygia_guttata")
+        # Get the image for that UUID
+        bird <- get_phylopic(uuid = uuid_bird)
+        #bird <- rotate_phylopic(img = bird, angle = 45)
+
+         #Get a single image UUID for a species
+        uuid_amphib <- get_uuid(name = "Triturus")
+        # Get the image for that UUID
+        amphib <- get_phylopic(uuid = uuid_amphib)
+
+          #Get a single image UUID for a species
+        uuid_fish <- get_uuid(name = "Dicentrarchus_labrax")
+        # Get the image for that UUID
+        fish <- get_phylopic(uuid = uuid_fish)
+
+  # Get summary data for levels
+taxa_table <- lapply(data_lists, function(x) x  %>% group_by(class) %>% summarise(studies = n_distinct(study), spp = n_distinct(species_phylo), k = n()))
+
+# Create coordinate system that is unique for each plot
+z = list(data.frame(x = c(1.2, 2.2, 3.2), y = rep(4, 3)),
+         data.frame(x = c(1.2, 2.2, 3.2), y = rep(4, 3)),
+         data.frame(x = c(1.2, 2.2, 3.2, 4.2), y = rep(4, 4)))
+
+w = list(data.frame(x = c(1.2, 2.2, 3.2)-0.5, y = rep(4, 3)),
+         data.frame(x = c(1.2, 2.2, 3.2)-0.5, y = rep(4, 3)),
+         data.frame(x = c(1.2, 2.2, 3.2, 4.2)-0.5, y = rep(4, 4)))         
+
+# p-values
+    
+    p_taxa <- lapply(MLMR_list_taxa_noint[c(1,3,4)], function(x) round(x$pval, 2))
+
+    plots  <- mapply(function(x, y, z, w, p)  {orchard_plot(x, mod = "class", xlab = TeX("$SMD_{H}$"), group = "study", trunk.size = 1.2, branch.size = 2, g = FALSE, k = FALSE) +  ylim(-8,8) +                                              theme_classic() + theme(legend.position = "top", axis.title = element_text(size = 18), plot.title = element_text(face = "bold", size = 16),
+                                                      axis.text = element_text(size = 12),
+                                                       plot.tag = element_text(size = 24)) +
+    annotate("text", x = c(z$x), y = c(z$y), label = TeX(paste0("\\textit{k} = ", y$k, " (", y$studies, ")")), size = 5, hjust = 0) + 
+    annotate("text", x = c(w$x), y = c(w$y), label = TeX(paste0("\\textit{p} = ", p)), size = 5, hjust = 0)}, x = MLMR_list_taxa[c(1,3,4)], y = taxa_table[c(1,3,4)], z = z, w = w, p = p_taxa, SIMPLIFY = FALSE)
+                                                       
+ann1 <- function() {list(add_phylopic(img = mammal, x = 3.3, y = -5, height = 0.45),
+                         add_phylopic(img = bird, x = 2.3, y = -5, height = 0.45), add_phylopic(img = fish, x = 1.3, y = -5, height = 0.35))}
+ann2 <- function() {list(add_phylopic(img = mammal, x = 4.3, y = -5, height = 0.45),
+                         add_phylopic(img = bird, x = 3.3, y = -5, height = 0.45),
+                         add_phylopic(img = amphib, x = 2.3, y = -5, height = 0.35), add_phylopic(img = fish, x = 1.3, y = -5, height = 0.35))}
+    p_taxa <- (plots[[1]] + ann1() + ggtitle("Glucocorticoids") + plots[[2]] + ann1() + ggtitle("Psychological disturbance") + plots[[3]] + ann2() + ggtitle("Nutritional imbalance")) + plot_annotation(tag_levels = "a", tag_suffix = ")") 
+    ggsave(here("output", "figures", "fig6.png"), p_taxa, width = 16.854902, height = 6.078431)
+
+    p_taxa <- image_read(here("output", "figures", "fig6.png"))
+    p_taxa
+```
+
+## Disturbance developmental impacts on mitochondrial function
+
+Disturbance during development had a negative impact on mitochondrial function ($SMD_{H}$ = `r coef(summary_list[[3]])$estimate`, 95% CI = `r coef(summary_list[[3]])$ci.lb` to `r coef(summary_list[[3]])$ci.ub`, $p$ = `r coef(summary_list[[3]])$pval`; [@fig-orchard_int]c). However, there was evidence for publication bias, which if truly present, would change the overall meta-analytic mean to $SMD_{H}$ = `r MLMA_list_pubbias_v[[3]]$b[1]` (95% CI = `r MLMA_list_pubbias_v[[3]]$ci.lb[1]` to `r MLMA_list_pubbias_v[[3]]$ci.ub[1]`, $p$ = `r MLMA_list_pubbias_v[[3]]$pval[1]`) (See *Supplementary Materials*). Effect heterogeneity was high (95% Prediction Intervals: `r predict(summary_list[[3]])$pi.lb` to `r predict(summary_list[[3]])$pi.ub`; Table @tbl-heterogeneity), with substantial variation across studies ($I^2_{study}$ = `r i2[2,"I2_study"]`%)(Table @tbl-heterogeneity).
+
+Impacts of disturbance affected functional categories significantly differently ($Q_{M}_{`r MLMR_list_Measure[[3]]$QMdf[1]`, `r MLMR_list_Measure[[3]]$QMdf[2]`}$ = `r MLMR_list_Measure[[3]]$QM`, $p$ = `r MLMR_list_Measure[[3]]$QMp` [@fig-orchard_measure]c). Oxidative damage was most impacted by disturbance stress ($SMD_{H}$ = `r MLMR_list_Measure_noint[[3]]$b[3]`, 95% CI: `r MLMR_list_Measure_noint[[3]]$ci.lb[3]` to `r MLMR_list_Measure_noint[[3]]$ci.ub[3]`, $p$ = `r MLMR_list_Measure_noint[[3]]$pval[3]`), and differed significantly from antioxidant ($SMD_{H}$ = `r MLMR_list_Measure_noint[[3]]$b[1]`, 95% CI: `r MLMR_list_Measure_noint[[3]]$ci.lb[1]` to `r MLMR_list_Measure_noint[[3]]$ci.ub[1]`, $p$ = `r MLMR_list_Measure_noint[[3]]$pval[1]`) and metabolic capacity ($SMD_{H}$ = `r MLMR_list_Measure_noint[[3]]$b[2]`, 95% CI: `r MLMR_list_Measure_noint[[3]]$ci.lb[2]` to `r MLMR_list_Measure_noint[[3]]$ci.ub[2]`, $p$ = `r MLMR_list_Measure_noint[[3]]$pval[2]`) ([@fig-orchard_measure]c). 
+
+Disturbance stress occured only postnatally in fish and birds, whereas in mammals disturbance stressors were also applied prenatally. As such, there was some taxonomic bias. However, we did not find any significant differences among classes ($Q_{M}_{`r MLMR_list_taxa[[3]]$QMdf[1]`, `r MLMR_list_taxa[[3]]$QMdf[2]`}$ = `r MLMR_list_taxa[[3]]$QM`, $p$ = `r MLMR_list_taxa[[3]]$QMp`; [@fig-orchard_taxa]b). Despite this, we found evidence that prenatal and post-natal disturbance stressors had different impacts on mitochondrial function. Prenatal disturbance stressors had a larger negative (albeit non-significant) impact on mitochondrial function compared to postnatal disturbance (Contrast $SMD_{H}$ = `r MLMR_list_preprost[[3]]$b[2]`, 95% CI = `r MLMR_list_preprost[[3]]$ci.lb[2]` to `r MLMR_list_preprost[[3]]$ci.ub[2]`, $p$ = `r MLMR_list_preprost[[3]]$pval[2]`; [@fig-orchard_prepost]b). Overall, prenatal disturbance stressors had a larger negative impact on mitochondrial function ($SMD_{H}$ = `r MLMR_list_preprost_noint[[3]]$b[2]`, 95% CI = `r MLMR_list_preprost_noint[[3]]$ci.lb[2]` to `r MLMR_list_preprost_noint[[3]]$ci.ub[2]`, $p$ = `r MLMR_list_preprost_noint[[3]]$pval[2]`), whereas postnatal disturbance stressors had a smaller negative impact ($SMD_{H}$ = `r MLMR_list_preprost_noint[[3]]$b[1]`, 95% CI = `r MLMR_list_preprost_noint[[3]]$ci.lb[1]` to `r MLMR_list_preprost_noint[[3]]$ci.ub[1]`, $p$ = `r MLMR_list_preprost_noint[[3]]$pval[1]`) ([@fig-orchard_prepost]b). Again, time between treatment and measurement of mitochondrial function did not influence average effect size ($\beta$ = `r delay_list[[3]]$b[2]`, 95% CI = `r delay_list[[3]]$ci.lb[2]` to `r delay_list[[3]]$ci.ub[2]`, $p$ = `r delay_list[[3]]$pval[2]`; [@fig-delay]c).
+
+
+```{r, fig-orchard_prepost}
+#| label: fig-orchard_prepost
+#| echo: false
+#| warning: false
+#| error: false
+#| fig-cap: "**Overall meta-analytic mean estimates different stages of manipulation (pre-natal, post-natal or both) across different developmental stressors (a) corticosterone, (b) social deprevation, (c) disturbance stress and (d) nutritional stress**. Mean estimates are shown as large points, with 95% confidence (thick black bars) and prediction (thin black bars). The number of effects (k) along with the number of studies (in parantheses) are shown provided for each stage. The dashed line represents no effect (i.e., $SMD_{H}$ = 0). Raw data are also shown and are weighted by their inverse sampling error (precision). Note raw data is truncated for ease of visualisation. Social deprevation was not included as it only has one level for stage (post-natal) (see Figure 2 for effects)."
+
+ # Get summary data for levels
+prepost_table <- lapply(data_lists, function(x) x  %>% group_by(stage) %>% summarise(studies = n_distinct(study), spp = n_distinct(species_phylo), k = n()))
+
+# Create coordinate system that is unique for each plot
+z = list(data.frame(x = c(1.2, 2.2), y = rep(4, 2)),
+         data.frame(x = c(1.2, 2.2), y = rep(4, 2)),
+         data.frame(x = c(1.2, 2.2, 3.2), y = rep(4, 3)))
+w  = list(data.frame(x = c(1.2, 2.2), y = rep(4, 2)-12),
+         data.frame(x = c(1.2, 2.2), y = rep(4, 2)-12),
+         data.frame(x = c(1.2, 2.2, 3.2), y = rep(4, 3)-12))
+# p-values
+   p_prepost <- lapply(MLMR_list_preprost_noint[c(1,3,4)], function(x) round(x$pval, 2))
+
+    plots  <- mapply(function(x,y,z,w, p){ orchard_plot(x, mod = "stage", xlab = TeX("$SMD_{H}$"), group = "study", trunk.size = 1.2, branch.size = 2, k = FALSE, g = FALSE, weights = "prop") +  ylim(-8,8) +                                              theme_classic() + theme(legend.position = "top", axis.title = element_text(size = 18), plot.title = element_text(face = "bold", size = 16),
+                                                      axis.text = element_text(size = 12),
+                                                       plot.tag = element_text(size = 24)) +
+    annotate("text", x = c(z$x), y = c(z$y), label = TeX(paste0("\\textit{k} = ", y$k, " (", y$studies, ")")), size = 5, hjust = 0) + 
+    annotate("text", x = c(w$x), y = c(w$y), label = TeX(paste0("\\textit{p} = ", p)), size = 5, hjust = 0)
+    }, x = MLMR_list_preprost[c(1,3,4)], y = prepost_table[c(1,3,4)], z = z, w = w, p = p_prepost, SIMPLIFY = FALSE)
+                                                                        
+    p_prepost <- (plots[[1]] + ggtitle("Glucocorticoids") + plots[[2]] + ggtitle("Psychological disturbance") + plots[[3]] + ggtitle("Nutritional imbalance")) + plot_annotation(tag_levels = "a", tag_suffix = ")") 
+    ggsave(here("output", "figures", "fig7.png"), p_prepost, width = 16.572549, height = 5.968627)
+
+    p_prepost <- image_read(here("output", "figures", "fig7.png"))
+    p_prepost
+```
+
+```{r, fig-delay}
+#| label: fig-delay
+#| echo: false
+#| warning: false
+#| error: false
+#| fig-cap: "**Bubble plots of the impact of measurement delay between ending of treatment and trait measurement on $SMD_{H}$ across different developmental stressors (a) corticosterone, (b) social deprevation, (c) disturbance stress and (d) nutritional stress**. Predicted mean (central black line), with 95% confidence (dashed line) and prediction intervals (dotted line). The number of effects (k) are shown provided for each dataset. Raw data are also shown and are weighted by their inverse sampling error (precision). "
+
+ # Get summary data for levels
+  
+    plots  <- lapply(delay_list, function(x){ bubble_plot(x, mod = "delay", ylab = TeX("$SMD_{H}$"),xlab = "Measurement Delay (days)",  group = "study") +                                              theme_classic() + theme(legend.position = "top", axis.title = element_text(size = 18), plot.title = element_text(face = "bold", size = 16),
+                                                      axis.text = element_text(size = 12),
+                                                       plot.tag = element_text(size = 24))})
+                                                                        
+    delay <- (plots[[1]] + ggtitle("Glucocorticoids") + plots[[2]] + ggtitle("Parental care deprivation") + plots[[3]] + ggtitle("Psychological disturbance") + plots[[4]] + ggtitle("Nutrition")) + plot_annotation(tag_levels = "a", tag_suffix = ")") 
+    ggsave(here("output", "figures", "fig_delay.png"), delay, width = 8.703704, height = 8.679012)
+
+    delay <- image_read(here("output", "figures", "fig_delay.png"))
+    delay
+```
+
+## Nutrition developmental impacts on mitochondrial function
+
+```{r, nurtition_models}
+#| label: nurtition_models
+#| echo: false
+#| eval: true  
+#| warning: false
+#| error: false
+#| include: false
+
+#### -------------------------------------------------- ####
+# 1.3   Nutrition moderator models 
+#### -------------------------------------------------- ####
+
+# We have a number of moderators that are specific to the nutrition category that needs to be explored carefully. Under/over nutrition, type of manipulation etc
+
+# Extract the nutrition dataset only as moderators are only relevant for this dataset
+  nutri_data <- data_lists[[4]]
+
+# Have a look at categories and levels to identify gaps 
+  tabyl(nutri_data, nutrition_type, nutrition_sum) # No fat manipulatioon in under nutrition
+  tabyl(nutri_data, nutrition_type, measurement_category) # No repiratioon carbs 
+  tabyl(nutri_data, nutrition_sum, measurement_category) # Looks good
+  tabyl(nutri_data, nutrition_type, class) # Major tax bias. Carbs and fat mostly fish, protein mostly mammals
+  tabyl(nutri_data, nutrition_sum, class) # No overnutrition of amphibians
+  
+# Have a look at mammals
+  nutri_data_mammals_sum <- nutri_data %>% filter(class == "Mammalia")  %>% group_by(nutrition_type, nutrition_sum)  %>% 
+    summarise(studies = n_distinct(study), spp = n_distinct(species_phylo), k = n())
+  
+rerun = FALSE
+if(rerun){
+    #### -------------------------------------------------- ####
+    # 1.3   Over and under nutrition and nutrition type 
+    #### -------------------------------------------------- ####
+      # Make sure obs is udpated for this dataset
+        nutri_data$obs <- 1:nrow(nutri_data)
+
+      # Prune the tree to relevant taxa contained within this dataset.
+        tree_prune <- tree_checks(tree = phylo, dataCol = "species_phylo", data = nutri_data, type ="prune")
+
+      # Calculate the phylogenetic correlation matrix
+        phylo_cor <- vcv(tree_prune, cor = TRUE)
+
+      # # Fit the MLMR model for each dataset but note that social deprivation only has one level for class so cannot fit this model
+
+          nutri_up_down <- rma.mv(SMDH ~ nutrition_sum, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| species_phylo,
+                                          ~1| tissue_sum,
+                                          ~1| obs),
+                            R = list(species_phylo = phylo_cor),
+                          test = "t", 
+                          data = nutri_data)
+
+        nutri_up_down_noint <- rma.mv(SMDH ~ nutrition_sum-1, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| species_phylo,
+                                          ~1| tissue_sum,
+                                          ~1| obs),
+                            R = list(species_phylo = phylo_cor),
+                          test = "t", 
+                          data = nutri_data)                          
+       # Save the model
+        saveRDS(nutri_up_down, file = here("output", "models", "nutri_up_down.rds"))
+        saveRDS(nutri_up_down_noint, file = here("output", "models", "nutri_up_down_noint.rds"))
+
+       nutri_type <- rma.mv(SMDH ~ nutrition_type, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| species_phylo,
+                                          ~1| tissue_sum,
+                                          ~1| obs),
+                            R = list(species_phylo = phylo_cor),
+                          test = "t", 
+                          data = nutri_data)        
+
+       nutri_type_noint <- rma.mv(SMDH ~ nutrition_type-1, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| species_phylo,
+                                          ~1| tissue_sum,
+                                          ~1| obs),
+                            R = list(species_phylo = phylo_cor),
+                          test = "t", 
+                          data = nutri_data)   
+
+        # Save the model
+        saveRDS(nutri_type, file = here("output", "models", "nutri_type.rds"))
+        saveRDS(nutri_type_noint, file = here("output", "models", "nutri_type_noint.rds"))
+
+        nutri_type_sum <- rma.mv(SMDH ~ nutrition_type + nutrition_sum, V = v_SMDH, 
+                              random = list(~1| study, 
+                                            ~1| species_phylo,
+                                            ~1| tissue_sum,
+                                            ~1| obs),
+                              R = list(species_phylo = phylo_cor), test = "t", 
+                          data = nutri_data)
+       # Save the model
+        saveRDS(nutri_type_sum, file = here("output", "models", "nutri_type_sum.rds"))
+      
+      
+        AIC(nutri_type_sum, nutri_type, nutri_up_down)  # Most parsimonious model is nutri_type
+
+    #### -------------------------------------------------- ####
+    # 1.3   Over and under nutrition and measurement type  
+    #### -------------------------------------------------- ####
+  
+          nutri_up_down_measure <- rma.mv(SMDH ~ nutrition_sum * measurement_category, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| species_phylo,
+                                          ~1| tissue_sum,
+                                          ~1| obs),
+                            R = list(species_phylo = phylo_cor),
+                          test = "t", 
+                          data = nutri_data)
+       # Save the model
+        saveRDS(nutri_up_down_measure, file = here("output", "models", "nutri_up_down_measure.rds"))
+
+
+    #### -------------------------------------------------- ####
+    # 1.3   Over and under nutrition and nutrition type - mammals only 
+    #### -------------------------------------------------- ####
+      # Mammals
+        nutri_data_mammals <- nutri_data %>% filter(class == "Mammalia")
+      # Make sure obs is udpated for this dataset
+        nutri_data_mammals$obs <- 1:nrow(nutri_data_mammals)
+
+      # Prune the tree to relevant taxa contained within this dataset.
+        tree_prune <- tree_checks(tree = phylo, dataCol = "species_phylo", data = nutri_data_mammals, type ="prune")
+
+      # Calculate the phylogenetic correlation matrix
+        phylo_cor <- vcv(tree_prune, cor = TRUE)
+
+        nutri_up_down_mammls <- rma.mv(SMDH ~ nutrition_sum, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| species_phylo,
+                                          ~1| tissue_sum,
+                                          ~1| obs),
+                            R = list(species_phylo = phylo_cor),
+                          test = "t", 
+                          data = nutri_data_mammals)
+        # Save the model
+        saveRDS(nutri_up_down_mammls, file = here("output", "models", "nutri_up_down_mammls.rds"))
+
+         nutri_type_mammls <- rma.mv(SMDH ~ nutrition_type, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| species_phylo,
+                                          ~1| tissue_sum,
+                                          ~1| obs),
+                            R = list(species_phylo = phylo_cor),
+                          test = "t", 
+                          data = nutri_data_mammals)     
+
+        # Save the model
+        saveRDS(nutri_type_mammls, file = here("output", "models", "nutri_type_mammls.rds"))
+
+        nutri_type_sum_mammls <- rma.mv(SMDH ~ nutrition_type + nutrition_sum, V = v_SMDH, 
+                            random = list(~1| study, 
+                                          ~1| species_phylo,
+                                          ~1| tissue_sum,
+                                          ~1| obs),
+                            R = list(species_phylo = phylo_cor),
+                          test = "t", 
+                          data = nutri_data_mammals)    
+        # Save the model
+        saveRDS(nutri_type_sum_mammls, file = here("output", "models", "nutri_type_sum_mammls.rds"))
+    
+        AIC(nutri_type_sum_mammls, nutri_type_mammls, nutri_up_down_mammls)  # Most parsimonious model is nutri_type_sum_mammls
+} else {
+                nutri_up_down <- readRDS(here("output", "models", "nutri_up_down.rds"))
+          nutri_up_down_noint <- readRDS(here("output", "models", "nutri_up_down_noint.rds"))
+                   nutri_type <- readRDS(here("output", "models", "nutri_type.rds"))
+               nutri_type_sum <- readRDS(here("output", "models", "nutri_type_sum.rds"))
+             nutri_type_noint <- readRDS(here("output", "models", "nutri_type_noint.rds"))
+        
+        nutri_up_down_measure <- readRDS(here("output", "models", "nutri_up_down_measure.rds"))
+      
+}
+
+```
+
+Nutritional stress during development had a weaker negative impact on mitochondrial function overall ($SMD_{H}$ = `r coef(summary_list[[4]])$estimate`, 95% CI = `r coef(summary_list[[4]])$ci.lb` to `r coef(summary_list[[4]])$ci.ub`, $p$ = `r coef(summary_list[[4]])$pval`; [@fig-orchard_int]d). There also was evidence for publication bias. Corrected meta-analytic mean estimates, if publication bias were indeed present, may instead be slightly positive, but remain non-significant ($SMD_{H}$ = `r MLMA_list_pubbias_v[[4]]$b[1]`, 95% CI = `r MLMA_list_pubbias_v[[4]]$ci.lb[1]` to `r MLMA_list_pubbias_v[[4]]$ci.ub[1]`, $p$ = `r MLMA_list_pubbias_v[[4]]$pval[1]`) (See *Supplementary Materials*). Effect heterogeneity was high (95% Prediction Intervals: `r predict(summary_list[[4]])$pi.lb` to `r predict(summary_list[[4]])$pi.ub`; Table @tbl-heterogeneity; and see Table S @tbl-heterogeneity_cv & Table S @tbl-heterogeneity_m2), with variation being driven by differences between studies ($I^2_{study}$ = `r i2[3,"I2_study"]`%),  phylogeny ($I^2_{phylogeny}$ = `r i2[3,"I2_species_phylo"]`%) and tissue ($I^2_{tissue}$ = `r i2[3,"I2_tissue_sum"]`%) (Table @tbl-heterogeneity). 
+
+Importantly, there was a taxonomic bias in the types of nutritional manipulations done, with fish studies being the only ones to manipulate carbohydrates; only total food was manipulated across all classes. Under- or over-nutrition did not significantly differ in their impacts on mitochondrial function ($Q_{M}_{`r nutri_up_down$QMdf[1]`, `r nutri_up_down$QMdf[2]`}$ = `r nutri_up_down$QM`, $p$ = `r nutri_up_down$QMp`; [@fig-orchard_nutrition]a) and there was weak evidence for an interaction between measurement type and under/over-nutrition ($Q_{M}_{`r nutri_up_down_measure$QMdf[1]`, `r nutri_up_down_measure$QMdf[2]`}$ = `r nutri_up_down_measure$QM`, $p$ = `r nutri_up_down_measure$QMp`). In fact, there was little evidence that mitochodnrial function differed across functional trait categories generally ([@fig-orchard_measure]d). The best supported model, suggested, protein and fat manipulations did have a larger negative impact on mitochondrial function compared to carbohydrate manipulations but this effect was confounded with taxonomic class where only mammals had protein manipulations (Protein Contrast $SMD_{H}$ = `r nutri_type$b[3]`, 95% CI: `r nutri_type$ci.lb[3]` to `r nutri_type$ci.ub[3]`, $p$ = `r nutri_type$pval[3]`; Fat Contrast $SMD_{H}$ = `r nutri_type$b[2]`, 95% CI: `r nutri_type$ci.lb[2]` to `r nutri_type$ci.ub[2]`, $p$ = `r nutri_type$pval[2]` [@fig-orchard_nutrition]b). There was no evidence that the stage of manipulation when nutritional stress took place impacted mitochondrial function ([@fig-orchard_prepost]d), or that measurement delay influenced average effect size ($\beta$ = `r delay_list[[4]]$b[2]`, 95% CI = `r delay_list[[4]]$ci.lb[2]` to `r delay_list[[4]]$ci.ub[2]`, $p$ = `r delay_list[[4]]$pval[2]`; [@fig-delay]d).
+
+```{r, fig-orchard_nutrition}
+#| label: fig-orchard_nutrition
+#| echo: false
+#| warning: false     
+#| error: false
+#| fig-cap: "**Overall meta-analytic mean estimates for nutritional stressors (a) under- and over-nutrition and (b) nutrition type**. Mean estimates are shown as large points, with 95% confidence (thick black bars) and prediction (thin black bars). The number of effects (k) along with the number of studies (in parantheses) are shown provided for each stressor  type. The dashed line represents no effect (i.e., $SMD_{H}$ = 0). Raw data are also shown and are weighted by their inverse sampling error (precision). Note raw data is truncated for ease of visualisation."   
+
+
+# Get summary data for levels
+ nutri_table <- nutri_data  %>% group_by(nutrition_type) %>% summarise(studies = n_distinct(study), spp = n_distinct(species_phylo), k = n()) 
+ nutri_table2 <- nutri_data  %>% group_by(nutrition_sum) %>% summarise(studies = n_distinct(study), spp = n_distinct(species_phylo), k = n())
+
+# P-values
+  p_nutri <- round(nutri_type$pval, 2)
+  p_nutri2 <- round(nutri_up_down$pval, 2)  
+
+p_up_down <- orchard_plot(nutri_up_down, mod = "nutrition_sum", xlab = TeX("$SMD_{H}$"), group = "study", trunk.size = 1.2, branch.size = 2, k = FALSE, g = FALSE) + 
+  ylim(-8,8) + theme_classic() + 
+  theme(legend.position = "top", axis.title = element_text(size = 18), plot.title = element_text(face = "bold", size = 16), axis.text = element_text(size = 12), plot.tag = element_text(size = 24)) + 
+  annotate("text",y = c(rep(5, 2)), x = c(1.20, 2.20), label = TeX(paste0("\\textit{k} = ", nutri_table2$k, " (", nutri_table2$studies, ")")), size = 5, hjust = 0) +
+  annotate("text",y = c(rep(5, 2))-12, x = c(1.20, 2.20), label = TeX(paste0("\\textit{p} = ", p_nutri2)), size = 5, hjust = 0)
+
+p_type <- orchard_plot(nutri_type, mod = "nutrition_type", xlab = TeX("$SMD_{H}$"), group = "study", trunk.size = 1.2, branch.size = 2, k = FALSE, g = FALSE) + 
+  ylim(-8,8) + theme_classic() + 
+  theme(legend.position = "top", axis.title = element_text(size = 18), plot.title = element_text(face = "bold", size = 16), axis.text = element_text(size = 12), plot.tag = element_text(size = 24)) + 
+  annotate("text", y = c(rep(5, 4)), x = c(1.20, 2.20, 3.20, 4.20), label = TeX(paste0("\\textit{k} = ", nutri_table$k, " (", nutri_table$studies, ")")), size = 5, hjust = 0) + annotate("text",y = c(rep(5, 4))-12, x = c(1.20, 2.20, 3.20, 4.20), label = TeX(paste0("\\textit{p} = ", p_nutri)), size = 5, hjust = 0)
+  
+p_nutr <- p_up_down + p_type + plot_annotation(title = "Nutritional imbalance", tag_levels = "a", tag_suffix = ")", theme = theme(plot.title = element_text(face = "bold", size = 20), plot.tag = element_text(size = 24)))
+ggsave(here("output", "figures", "fig8.png"), p_nutr, width = 14.031372, height = 6.345098)
+
+# Read in the image
+p_nutr <- image_read(here("output", "figures", "fig8.png"))
+p_nutr
+
+```
+
+# References
+
+<br>
+
+::: {#refs}
+:::
+
+<br>
+
+
+# Supplementary Materials
+
+```{r, tbl-heterogeneity_cv}
+#| label: tbl-heterogeneity_cv
+#| tbl-cap: "Heterogeneity estimates using CV for developmental stressor datasets"
+#| echo: false
+#| warning: false
+#| error: false
+#| eval: true
+
+#### -------------------------------------------------- ####
+#        Heterogeneity  CV2 Table
+#### -------------------------------------------------- ####
+
+  # Create k and n columns for sample sizes
+    order <- c(1, 3, 4, 2)
+  size  <- data.frame(do.call("rbind", lapply(data_lists, function (x) x  %>% summarise(k = n(), species = n_distinct(species_phylo), study = n_distinct(study)))))  %>% slice(order)
+  
+  # Create table of cv2 Total and cv2 for each level
+  cv2 <- make_het_tables(MLMA_list, size = size, type = "cv2")
+ 
+cv2$Stressor <- c("Corticosterone",  "Disturbance", "Nutrition", "Social Deprevation")
+cv2  <- cv2  %>% dplyr::select(Stressor, everything())
+
+eq1  <- c(
+  "Stressor",
+  "n_{effects}",
+  "n_{species}",
+  "n_{study}",
+  "CV^2_{total}",
+  "CV^2_{study}",
+  "CV^2_{phylogeny}",
+  "CV^2_{tissue}",
+  "CV^2_{obs}"
+)
+
+flextable(round_df(cv2, digits = 3))  %>% compose(part = "header", value = as_paragraph(as_equation(eq1))) %>% 
+  width(j = c(1:9), width = c(1.5, rep(0.65, 8)))  %>%  compose(j = c(7,8), i = 4, value = as_paragraph("–"))
+```
+
+```{r,tbl-heterogeneity_m2}
+#| label: tbl-heterogeneity_m2
+#| tbl-cap: "Heterogeneity M2 "
+#| echo: false
+#| warning: false
+#| error: false
+#| eval: true
+
+# Create k and n columns for sample sizes
+    order <- c(1, 3, 4, 2)
+  size  <- data.frame(do.call("rbind", lapply(data_lists, function (x) x  %>% summarise(k = n(), species = n_distinct(species_phylo), study = n_distinct(study)))))  %>% slice(order)
+ m2 <- make_het_tables(MLMA_list, size = size, type = "m2")
+m2$Stressor <- c("Corticosterone",  "Disturbance", "Nutrition", "Social Deprevation")
+m2  <- m2  %>% dplyr::select(Stressor, everything())
+
+eq2  <- c(
+  "Stressor",
+  "n_{effects}",
+  "n_{species}",
+  "n_{study}",
+  "M^2_{total}",
+  "M^2_{study}",
+  "M^2_{phylogeny}",
+  "M^2_{tissue}",
+  "M^2_{obs}"
+)
+
+flextable(round_df(m2, digits = 3))  %>% compose(part = "header", value = as_paragraph(as_equation(eq2))) %>% 
+  width(j = c(1:9), width = c(1.5, rep(0.65, 8)))  %>%  compose(j = c(7,8), i = 4, value = as_paragraph("–"))
+```
+
+#### Publicaton bias
+
+```{r, fig-funnels}
+#| label: fig-funnels
+#| echo: false
+#| warning: false
+#| error: false
+#| fig-cap: "**Funnel plots for each developmental stressor dataset**. Each point represents an effect size (SMDH) and its precision (1/SE). The dashed line represents no effect (i.e., $SMD_{H}$ = 0)."
+# Funnel plots
+plots <- lapply(data_lists, function(x) ggplot(x, aes(x = SMDH, y = 1/sqrt(v_SMDH))) + geom_point() + labs(x = TeX("$SMD_{H}$"), y = "Precision (1 / SE)") + 
+  theme_classic() + theme(axis.title = element_text(size = 18), plot.title = element_text(face = "bold", size = 16), axis.text = element_text(size = 12), plot.tag = element_text(size = 24)) + geom_vline(xintercept = 0, linetype = "dashed"))
+
+funnels <- plots[[1]] + ggtitle("Corticosterone") + plots[[2]] + ggtitle("Disturbance") + plots[[3]] + ggtitle("Social Deprivation") + plots[[4]] + ggtitle("Nutrition") + plot_annotation(tag_levels = "a", tag_suffix = ")")
+
+ggsave(here("output", "figures", "fig_funnel.png"), funnels, width = 7.756863 , height = 6.415686)
+
+funnels <- image_read(here("output", "figures", "fig_funnel.png"))
+funnels
+
+# Also look at resiudals
+
+# extract random effects from the models
+       blups  <- lapply(MLMA_list, function(x) ranef(x))
+
+  study_blups <- lapply(blups, function(x) x$study)
+species_blups <- lapply(blups, function(x) x$species_phylo)
+ tissue_blups <- lapply(blups, function(x) x$tissue_sum)
+
+```
+
+While there was evidence for funnel asymmetry for the corticosterone ([@fig-funnels]a), disturbance ([@fig-funnels]b), and social deprivation datasets ([@fig-funnels]c), this was not the case for the nutrition dataset ([@fig-funnels]c). However, overall asymmetry is likely driven by small sample sizes in most of these datasets. 
+
+We more formally tested for publication bias by including the inverse effective sample size as a moderator in our MLMA models, which better controlled for sources of heterogeneity. Overall, we found no evidence for a significant slope, indicative of possible publication bias, for the corticosterone ($\beta$ = `r MLMA_list_pubbias_se[[1]]$b[2]`, 95% CI = `r MLMA_list_pubbias_se[[1]]$ci.lb[2]` to `r MLMA_list_pubbias_se[[1]]$ci.ub[2]`, $p$ = `r MLMA_list_pubbias_se[[1]]$pval[2]`)or deprvivation ($\beta$ = `r MLMA_list_pubbias_se[[2]]$b[2]`, 95% CI = `r MLMA_list_pubbias_se[[2]]$ci.lb[2]` to `r MLMA_list_pubbias_se[[2]]$ci.ub[2]`, $p$ = `r MLMA_list_pubbias_se[[2]]$pval[2]`) datasets. However, we did find evidence for a significant slope for the disturbance model ($\beta$ = `r MLMA_list_pubbias_se[[3]]$b[2]`, 95% CI = `r MLMA_list_pubbias_se[[3]]$ci.lb[2]` to `r MLMA_list_pubbias_se[[3]]$ci.ub[2]`, $p$ = `r MLMA_list_pubbias_se[[3]]$pval[2]`) and nutriton model ($\beta$ = `r MLMA_list_pubbias_se[[4]]$b[2]`, 95% CI = `r MLMA_list_pubbias_se[[4]]$ci.lb[2]` to `r MLMA_list_pubbias_se[[4]]$ci.ub[2]`, $p$ = `r MLMA_list_pubbias_se[[4]]$pval[2]`). Re-fitting models with the inverse effective sample size as a moderator suggested that, if publicaton bias was present, overall meta-analytic means would change to $SMD_{H}$ = `r MLMA_list_pubbias_v[[3]]$b[1]` (95% CI = `r MLMA_list_pubbias_v[[3]]$ci.lb[1]` to `r MLMA_list_pubbias_v[[3]]$ci.ub[1]`, $p$ = `r MLMA_list_pubbias_v[[3]]$pval[1]`) for disturbance and $SMD_{H}$ = `r MLMA_list_pubbias_v[[4]]$b[1]` (95% CI = `r MLMA_list_pubbias_v[[4]]$ci.lb[1]` to `r MLMA_list_pubbias_v[[4]]$ci.ub[1]`, $p$ = `r MLMA_list_pubbias_v[[4]]$pval[1]`) for nutrition. 
+
+#### Impacts of extreme effects on overall meta-analytic means
+
+In the nutrition and disturbance datasets, we found two extreme effects that differed markedly from the majority of data ($SMD_{H}$ > -20) (see @fig-funnels). Careful data checking did not indicate any obvious data entry errors. To understand how they impacted the overall meta-analytic means, we re-ran the models without these extreme effects. We found that removing them had little impact on the overall meta-analytic means for nutrition ($SMD_{H}$ = `r sens_nutr$b[1]`, 95% CI = `r sens_nutr$ci.lb[1]` to `r sens_nutr$ci.ub[1]`, $p$ = `r sens_nutr$pval[1]`) and disturbance ($SMD_{H}$ = `r sens_disturb$b[1]`, 95% CI = `r sens_disturb$ci.lb[1]` to `r sens_disturb$ci.ub[1]`, $p$ = `r sens_disturb$pval[1]`). As such, our overall conclusions remain unchanged.
