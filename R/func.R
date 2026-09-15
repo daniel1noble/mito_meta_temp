@@ -67,22 +67,31 @@ round_df <- function(df, digits = 2) {
 #' @param mod_list List of models
 #' @param size Dataframe with size information (e.g., number of studies, species)
 #' @param type Type of heterogeneity statistic to calculate. Options are "i2", "cv2", or "m2".
-#' @details This function extracts heterogeneity statistics from a list of models and combines them into a single dataframe. It supports different types of heterogeneity statistics
-#' (i2, cv2, m2) and can handle multiple models.
-#' @return Dataframe with numeric columns rounded
+#' @details Extracts heterogeneity statistics from each model in `mod_list` and binds
+#' them into one dataframe alongside `size`. Models may differ in their random-effects
+#' structure (e.g. a dataset with a single taxonomic class is fitted without the
+#' phylogenetic or tissue terms); columns absent from a given model are returned as NA
+#' rather than dropped, so the rows stay aligned. Works for any number of models,
+#' including one.
+#' @return Dataframe of size information and heterogeneity estimates, one row per model
 make_het_tables  <- function(mod_list, size, type = c("i2", "cv2", "m2")){
   type = match.arg(type)
 
-  het  <- lapply(mod_list[c(1,3,4)], function (x) switch(type, "i2" = orchaRd::i2_ml(x),
-                                                              "cv2" = orchaRd::cvh2_ml(x),
-                                                               "m2" = orchaRd::m2_ml(x)))
-  het  <- data.frame(do.call("rbind", het))
-  
-  het.2 <- lapply(mod_list[2], function (x) switch(type, "i2" = orchaRd::i2_ml(x),
-                                                        "cv2" = orchaRd::cvh2_ml(x),
-                                                         "m2" = orchaRd::m2_ml(x)))
-  het.2 <- data.frame(do.call("rbind", het.2))
-  
-  het[4,c(1,2,5)] <- het.2
+  het_fun <- function(x) switch(type, "i2"  = orchaRd::i2_ml(x),
+                                      "cv2" = orchaRd::cvh2_ml(x),
+                                      "m2"  = orchaRd::m2_ml(x))
+
+  het <- lapply(mod_list, function(x) as.data.frame(t(het_fun(x))))
+
+  # Union of all estimate names, so models with fewer random effects still align
+  cols <- unique(unlist(lapply(het, names)))
+
+  het <- lapply(het, function(x) {
+    missing <- setdiff(cols, names(x))
+    if (length(missing) > 0) x[missing] <- NA
+    x[, cols, drop = FALSE]
+  })
+
+  het <- do.call("rbind", het)
   return(cbind(size, het))
 }
