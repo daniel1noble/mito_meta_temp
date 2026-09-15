@@ -1,6 +1,6 @@
 ---
 bibliography: ../bib/refs.bib
-csl: ../bib/biological-reviews.csl
+csl: ../bib/proceedings-of-the-royal-society-b.csl
 format:
   docx:
     reference-doc: ../bib/template.docx
@@ -39,30 +39,38 @@ editor:
   check_and_install(c("pacman"))
 	pacman::p_load(tidyverse, flextable, latex2exp, metafor, orchaRd, readxl, ape, phytools,here, brms, ggrepel, patchwork, magick, ggtree, equatags, rotl, rphylopic, ggimage, rmarkdown, knitr, kableExtra, janitor, minqa, multcomp)
 
-# Load the processed data. Keep object as list to hopefully make code more readable. 
-         path <- here("output", "data")
-        files <- list.files(here("output", "data"))
-	 data_lists <- lapply(paste0(path, "/", files), function(x) read.csv(x))
-    names(data_lists) <- files
+# Load the processed data.
+#
+# NOTE: this project analyses a SINGLE stressor (developmental temperature). The
+# sister paper (Crino et al. 2026 Biol. Rev.) had four stressor datasets and the
+# modelling chunks below still loop over a `data_lists` object of length 4. They
+# need rewriting for one dataset -- see TODO markers. `data_lists` is built here
+# with one named element so the existing code paths run unchanged in the meantime.
+#
+# Load explicitly by filename: output/data/ also holds temp_stress_full.csv (all
+# temperature rows plus the exclusion flags), which must NOT enter the analysis.
+  data <- read.csv(here("output", "data", "temp_stress.csv"))
 
-    data_lists  <- lapply(data_lists, function(x) mutate(x, depend = interaction(sample_depend, study)))
+  data_lists <- list(temp_stress = data)
 
-     data_lists <- lapply(data_lists, function(x) x %>% 
-                          mutate(inv_n = (n_t1 + n_t2) / (n_t1 * n_t2),
+# depend / precision terms are already created in R/1_data_process.R, but are
+# recreated here so this chunk is self-contained if the processed file changes.
+     data_lists <- lapply(data_lists, function(x) x %>%
+                          mutate(depend = interaction(sample_depend, study),
+                                  inv_n = (n_t1 + n_t2) / (n_t1 * n_t2),
                             sqrt_inv_n = sqrt(inv_n),
                                   ef_n = (4 * n_t1 * n_t2)/(n_t1 + n_t2))) # Effective sample size
 
-# All data summary
-  data <- plyr::ldply(data_lists)
+  data <- data_lists[[1]]
 
 # Summary of sexes category
   tabyl(data, sex)
-  
-# Bring in the phylogeny 
-  phylo <- read.tree(here("output", "phylo", "phylo_pruned_species.nwk"))
 
-# Tree also contains species that are in temperature dataset so these need to be pruned
-  phylo <- tree_checks(tree = phylo, dataCol = "species_phylo", data = data, type = "prune")
+# Bring in the phylogeny. Built from the temperature species only, so no further
+# pruning against a larger tree is needed; tree_checks confirms the match.
+  phylo <- read.tree(here("output", "phylo", "phylo_pruned.tre"))
+
+  tree_checks(tree = phylo, dataCol = "species_phylo", data = data, type = "checks")
 
 # Set digits
   options(digits = 2)
