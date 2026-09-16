@@ -1,0 +1,19 @@
+"row_key","study","tissue","descrp_measure","mean_t1","sd_t1","mean_t2","sd_t2"
+"merged_03072025_114","s35","liver","lipid peroxidation; measured by the formation of thiobarbituric reactive substances (TBARS)",0.27,0.0244948974278318,0.18,0.0244948974278318
+"merged_03072025_119","s35","gill","lipid peroxidation; measured by the formation of thiobarbituric reactive substances (TBARS)",1.03,0.220454076850486,0.94,0.220454076850486
+"merged_03072025_124","s35","skeletal muscle","lipid peroxidation; measured by the formation of thiobarbituric reactive substances (TBARS)",0.085,0.0146969384566991,0.085,0.0171464281994822
+"merged_03072025_130","s39","brain","antioxidant capacity, sum of antioxidant defenses; antioxidant capacity expressed in terms of Trolox equivalents",0.03,0.0264575131106459,0.03,0.0264575131106459
+"merged_03072025_133","s39","brain","thiobarbituric acid reactive substances, oxidative damage",0.8,0.264575131106459,0.8,0.264575131106459
+"merged_03072025_134","s39","liver","thiobarbituric acid reactive substances, oxidative damage",1.1,0.264575131106459,0.9,0.264575131106459
+"merged_03072025_136","s39","liver","markers of oxidative damage to proteins formed during oxidative stress",2.3,0.529150262212918,2.2,0.529150262212918
+"merged_03072025_321","s92","red and white axial muscles","citrate synthase",1.68616472690949,3.36124369047053,1.68616472690949,3.40564989567361
+"merged_03072025_369","l11","skeletal muscle","Maximal activity of the electron transport system (ETSmax; nmol O/min.mg protein)",64.7,23.4759451353934,79,23.4759451353934
+"merged_03072025_371","l11","skeletal muscle","Mitochondrial aerobic scope (mtAS; ETSmax - LEAK)",59,22.6274169979695,73,22.6274169979695
+"merged_03072025_410","Wild7","heart","CCO:CS ratio",0.59375,0.0318391692567811,0.226102941176471,0.0318391692567811
+"merged_03072025_428","N13","brown adipose tissue (BAT)","mitochondrial cristae per cytoplasm",12,4,12,3
+"merged_03072025_429","N13","brown adipose tissue (BAT)","mitochondrial cristae per cytoplasm",15,7,15,5
+"merged_03072025_433","N13","brown adipose tissue (BAT)","adipocyte average mitochondrial volume",0.47,0.1,0.43,0.1
+"merged_03072025_434","N13","brown adipose tissue (BAT)","volumetric density of mitochondria per cytoplasm",12,4,12,3
+"merged_03072025_435","N13","brown adipose tissue (BAT)","volumetric density of mitochondria per cytoplasm",15,7,15,5
+"kris_temp_OC_470","WildNew2","gill arch scraping","branchial Na+/K+-ATPase activity (SAopt)",20.6611570247933,4.7107438016529,20.6611570247933,3.2231404958679
+"kris_temp_OC_541","WildNew6","axial (tail) muscle","axial muscle cytochrome c oxidase activity time course; sampled at 5 weeks",2.51,1.01823376490863,2.51,0.961665222413705

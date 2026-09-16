@@ -1,0 +1,7 @@
+"row_key","source_file","study","tissue","descrp_measure","exclude_missing_info","mean_t1","sd_t1","n_t1","Notes"
+"merged_03072025_356","merged_03072025","s99","whole body","citrate synthase activity","0","3.49119373776908","0.81409001956947202","60","View study_notes"
+"merged_03072025_357","merged_03072025","s99","whole body","cytochrome c oxidase","0","22.269230769230798","3.8076923076923102","60","View study_notes"
+"merged_03072025_358","merged_03072025","s99","whole body","energy metabolism realted enzymes activities due to the electron transport system","0","5.5341506129597198","1.12084063047285","60","View study_notes"
+"merged_03072025_359","merged_03072025","s99","whole body","lactate dehydrogenase","0","136.01750547045901","4.9015317286652502","60","View study_notes"
+"merged_03072025_360","merged_03072025","s99","whole body","alkaline phosphate, here listed as a 'digestive enzyme' but described in previous paper by same lab group (Wen et al. 2017) as  playing role in phosphorus metabolism in aquatic animals, increases phophorylation and dephosphorylation mechanisms, might help mitochondrial function by liberating phosphates from organic molecules","0","267.52293577981698","11.0091743119265","60","View study_notes"
+"kris_temp_OC_481","kris_temp_OC","WildNew3","liver","cytochrome c oxidase activity; assayed at 20, 25, and 30C",".","8.2684377480000002","3.4044409199999999","9","View study_notes"
