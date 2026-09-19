@@ -41,11 +41,10 @@ editor:
 
 # Load the processed data.
 #
-# NOTE: this project analyses a SINGLE stressor (developmental temperature). The
-# sister paper (Crino et al. 2026 Biol. Rev.) had four stressor datasets and the
-# modelling chunks below still loop over a `data_lists` object of length 4. They
-# need rewriting for one dataset -- see TODO markers. `data_lists` is built here
-# with one named element so the existing code paths run unchanged in the meantime.
+# NOTE: This project analyses a SINGLE manipulation (developmental temperature),
+# but the modelling chunks below were written to loop over several datasets and
+# still need rewriting for one dataset -- see TODO markers. `data_lists` is built
+# here with one named element so the existing code paths run unchanged meanwhile.
 #
 # Load explicitly by filename: output/data/ also holds temp_stress_full.csv (all
 # temperature rows plus the exclusion flags), which must NOT enter the analysis.
@@ -66,9 +65,10 @@ editor:
 # Summary of sexes category
   tabyl(data, sex)
 
-# Bring in the phylogeny. Built from the temperature species only, so no further
-# pruning against a larger tree is needed; tree_checks confirms the match.
-  phylo <- read.tree(here("output", "phylo", "phylo_pruned.tre"))
+# Bring in the time-calibrated phylogeny from TimeTree (see R/1_data_process.R,
+# section 2, for how it was obtained). The rotl tree (phylo_pruned.tre) has no
+# branch lengths, so it cannot be used for the correlation matrix below.
+  phylo <- read.tree(here("output", "phylo", "phylo_pruned_species.nwk"))
 
   tree_checks(tree = phylo, dataCol = "species_phylo", data = data, type = "checks")
 
@@ -160,7 +160,11 @@ Effect sizes in two datasets were very large (i.e., $SMD_{H} < -20$). We checked
 
     # Sensitivity analysis. Test for influential effects. Couple data sets have SMDH -20. We've checked these for entry errors but all appear correctly extracted from the original papers.
 
-  sens_dat <- lapply(data_lists[c(2,4)], function(x) 
+  # TODO (temperature restructure): `data_lists[c(2,4)]` indexed the disturbance and
+  # nutrition datasets, which held the SMDH < -20 effects. There is now a single
+  # temperature dataset, so index it directly and re-check whether extreme effects
+  # exist at all -- see output/checks/check_extreme_effects.csv.
+  sens_dat <- lapply(data_lists, function(x)
              x  %>% filter(SMDH > -20))
  
     sens_disturb <- rma.mv(SMDH ~ 1, V = v_SMDH, 
@@ -210,13 +214,17 @@ Effect sizes in two datasets were very large (i.e., $SMD_{H} < -20$). We checked
 #### -------------------------------------------------- ####
 
   # Create k and n columns for sample sizes
-    order <- c(1, 3, 4, 2)
-  size  <- data.frame(do.call("rbind", lapply(data_lists, function (x) x  %>% summarise(k = n(), species = n_distinct(species_phylo), study = n_distinct(study)))))  %>% slice(order)
+  # TODO (temperature restructure): `order <- c(1, 3, 4, 2)` re-ordered the four
+  # stressor datasets for presentation. With one dataset no re-ordering is needed.
+  size  <- data.frame(do.call("rbind", lapply(data_lists, function (x) x  %>% summarise(k = n(), species = n_distinct(species_phylo), study = n_distinct(study)))))
   
   # Create table of I2 Total and I2 for each level
   i2 <- make_het_tables(MLMA_list, size = size, type = "i2")
 
-i2$Stressor <- c("Corticosterone",  "Disturbance", "Nutrition", "Social Deprevation")
+# TODO (temperature restructure): these were the four stressor labels. A single
+# temperature dataset needs no grouping column here; the table is more useful split
+# by a temperature moderator (e.g. temp_direction, or measurement_category) instead.
+i2$Stressor <- "Temperature"
 i2  <- i2  %>% dplyr::select(Stressor, everything())
 
 eq  <- c(
@@ -695,7 +703,10 @@ z = list(data.frame(x = 1.2, y = 5),
     x = MLMA_list, y = table, z = z, p = p_mlma, SIMPLIFY = FALSE)
 
 
-    p_overall <- (plots[[1]] + ggtitle("Glucocorticoids") + plots[[2]] + ggtitle("Parental Care Deprivation")) / (plots[[3]] + ggtitle("Psychological Disturbance") + plots[[4]] + ggtitle("Nutritional imbalance")) + plot_annotation(tag_levels = "a", tag_suffix = ")") 
+    # TODO (temperature restructure): this assembled one orchard panel per stressor.
+    # With a single temperature dataset there is one plot; panel instead by a
+    # temperature moderator (temp_direction / measurement_category / class).
+    p_overall <- plots[[1]] + ggtitle("Developmental temperature")
     ggsave(here("output", "figures", "fig4.png"), p_overall, width = 12.815686, height = 8.282353)
   
     p_overall <- image_read(here("output", "figures", "fig4.png"))
@@ -1125,13 +1136,15 @@ p_nutr
 #### -------------------------------------------------- ####
 
   # Create k and n columns for sample sizes
-    order <- c(1, 3, 4, 2)
-  size  <- data.frame(do.call("rbind", lapply(data_lists, function (x) x  %>% summarise(k = n(), species = n_distinct(species_phylo), study = n_distinct(study)))))  %>% slice(order)
+  # TODO (temperature restructure): `order <- c(1, 3, 4, 2)` re-ordered the four
+  # stressor datasets for presentation. With one dataset no re-ordering is needed.
+  size  <- data.frame(do.call("rbind", lapply(data_lists, function (x) x  %>% summarise(k = n(), species = n_distinct(species_phylo), study = n_distinct(study)))))
   
   # Create table of cv2 Total and cv2 for each level
   cv2 <- make_het_tables(MLMA_list, size = size, type = "cv2")
  
-cv2$Stressor <- c("Corticosterone",  "Disturbance", "Nutrition", "Social Deprevation")
+# TODO (temperature restructure): single dataset -- see the i2 table note above.
+cv2$Stressor <- "Temperature"
 cv2  <- cv2  %>% dplyr::select(Stressor, everything())
 
 eq1  <- c(
@@ -1162,7 +1175,8 @@ flextable(round_df(cv2, digits = 3))  %>% compose(part = "header", value = as_pa
     order <- c(1, 3, 4, 2)
   size  <- data.frame(do.call("rbind", lapply(data_lists, function (x) x  %>% summarise(k = n(), species = n_distinct(species_phylo), study = n_distinct(study)))))  %>% slice(order)
  m2 <- make_het_tables(MLMA_list, size = size, type = "m2")
-m2$Stressor <- c("Corticosterone",  "Disturbance", "Nutrition", "Social Deprevation")
+# TODO (temperature restructure): single dataset -- see the i2 table note above.
+m2$Stressor <- "Temperature"
 m2  <- m2  %>% dplyr::select(Stressor, everything())
 
 eq2  <- c(
@@ -1193,7 +1207,8 @@ flextable(round_df(m2, digits = 3))  %>% compose(part = "header", value = as_par
 plots <- lapply(data_lists, function(x) ggplot(x, aes(x = SMDH, y = 1/sqrt(v_SMDH))) + geom_point() + labs(x = TeX("$SMD_{H}$"), y = "Precision (1 / SE)") + 
   theme_classic() + theme(axis.title = element_text(size = 18), plot.title = element_text(face = "bold", size = 16), axis.text = element_text(size = 12), plot.tag = element_text(size = 24)) + geom_vline(xintercept = 0, linetype = "dashed"))
 
-funnels <- plots[[1]] + ggtitle("Corticosterone") + plots[[2]] + ggtitle("Disturbance") + plots[[3]] + ggtitle("Social Deprivation") + plots[[4]] + ggtitle("Nutrition") + plot_annotation(tag_levels = "a", tag_suffix = ")")
+# TODO (temperature restructure): one funnel plot rather than four.
+funnels <- plots[[1]] + ggtitle("Developmental temperature")
 
 ggsave(here("output", "figures", "fig_funnel.png"), funnels, width = 7.756863 , height = 6.415686)
 
